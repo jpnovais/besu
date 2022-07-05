@@ -94,7 +94,7 @@ public class RollupMergeCoordinator extends MergeCoordinator implements MergeMin
     final Block block =
         mergeBlockCreator.createBlock(Optional.of(transactions), prevRandao, timestamp);
 
-    Result result = executeBlock(block);
+    Result result = validateBlock(block);
     if (result.blockProcessingOutputs.isPresent()) {
       mergeContext.putPayloadById(payloadIdentifier, block);
     } else {
