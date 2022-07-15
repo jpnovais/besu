@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.rollup.RollupCreateBlockStatus;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 
 import java.util.List;
 import java.util.Optional;
@@ -28,17 +29,17 @@ public class RollupCreateBlockResult {
   private final RollupCreateBlockStatus status;
   private final PayloadIdentifier payloadId;
   private final EngineGetPayloadResult executionPayload;
-  private final List<TransactionReceiptResult> failedTransactionsReceipts;
+  private final List<InvalidTransactionResult> invalidTransactions;
 
   public RollupCreateBlockResult(
       final RollupCreateBlockStatus status,
       final PayloadIdentifier payloadId,
       final EngineGetPayloadResult executionPayload,
-      final List<TransactionReceiptResult> failedTransactionsReceipts) {
+      final List<InvalidTransactionResult> invalidTransactions) {
     this.status = status;
     this.payloadId = payloadId;
     this.executionPayload = executionPayload;
-    this.failedTransactionsReceipts = failedTransactionsReceipts;
+    this.invalidTransactions = invalidTransactions;
   }
 
   @JsonGetter(value = "status")
@@ -56,8 +57,38 @@ public class RollupCreateBlockResult {
     return executionPayload;
   }
 
-  @JsonGetter(value = "failedTransactionsReceipts")
-  public List<TransactionReceiptResult> getFailedTransactionsReceipts() {
-    return failedTransactionsReceipts;
+  @JsonGetter(value = "invalidTransactions")
+  public List<InvalidTransactionResult> getInvalidTransactions() {
+    return invalidTransactions;
+  }
+
+  public static class InvalidTransactionResult {
+    private final String transaction;
+    private final TransactionInvalidReason invalidReason;
+    private final String errorMessage;
+
+    public InvalidTransactionResult(
+        final String transaction,
+        final TransactionInvalidReason invalidReason,
+        final String errorMessage) {
+      this.transaction = transaction;
+      this.invalidReason = invalidReason;
+      this.errorMessage = errorMessage;
+    }
+
+    @JsonGetter(value = "transaction")
+    public String getTransaction() {
+      return transaction;
+    }
+
+    @JsonGetter(value = "reason")
+    public TransactionInvalidReason getInvalidReason() {
+      return invalidReason;
+    }
+
+    @JsonGetter(value = "errorMessage")
+    public String getErrorMessage() {
+      return errorMessage;
+    }
   }
 }

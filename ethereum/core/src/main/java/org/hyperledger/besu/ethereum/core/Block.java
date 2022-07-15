@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -28,10 +29,25 @@ public class Block {
 
   private final BlockHeader header;
   private final BlockBody body;
+  private final AtomicReference<Object> transactionSelectionResults;
 
   public Block(final BlockHeader header, final BlockBody body) {
     this.header = header;
     this.body = body;
+    this.transactionSelectionResults = new AtomicReference<>(null);
+  }
+
+  public Block(
+      final BlockHeader header,
+      final BlockBody body,
+      final AtomicReference<Object> transactionSelectionResults) {
+    this.header = header;
+    this.body = body;
+    this.transactionSelectionResults = transactionSelectionResults;
+  }
+
+  public AtomicReference<Object> getTransactionSelectionResults() {
+    return transactionSelectionResults;
   }
 
   public BlockHeader getHeader() {

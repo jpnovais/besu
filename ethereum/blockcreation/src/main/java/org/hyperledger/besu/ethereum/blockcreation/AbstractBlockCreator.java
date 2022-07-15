@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import com.google.common.collect.Lists;
@@ -205,7 +206,10 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
       final BlockHeader blockHeader = createFinalBlockHeader(sealableBlockHeader);
 
-      return new Block(blockHeader, new BlockBody(transactionResults.getTransactions(), ommers));
+      return new Block(
+          blockHeader,
+          new BlockBody(transactionResults.getTransactions(), ommers),
+          new AtomicReference<>(transactionResults));
     } catch (final SecurityModuleException ex) {
       throw new IllegalStateException("Failed to create block signature", ex);
     } catch (final CancellationException ex) {

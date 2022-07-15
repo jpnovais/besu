@@ -202,7 +202,7 @@ public class RollupCreateBlockTest {
             eq(mockPrevRandao),
             eq(Optional.of(blockGasLimit)));
 
-    assertThat(result.getFailedTransactionsReceipts()).isEmpty();
+    assertThat(result.getInvalidTransactions()).isEmpty();
     assertThat(result.getPayloadId()).isNotNull();
     assertThat(result.getPayloadId()).matches("0[xX][0-9a-fA-F]{16}");
     assertThat(result.getExecutionPayload()).isNotNull();
@@ -236,8 +236,8 @@ public class RollupCreateBlockTest {
             RollupCreateBlockStatus.INVALID_TRANSACTIONS);
 
     assertThat(result.getExecutionPayload()).isNull();
-    assertThat(result.getFailedTransactionsReceipts()).isNotEmpty();
-    assertThat(result.getFailedTransactionsReceipts().get(0).getTransactionHash())
+    assertThat(result.getInvalidTransactions()).isNotEmpty();
+    assertThat(result.getInvalidTransactions().get(0).getTransaction())
         .isEqualTo(transaction3.getHash().toHexString());
   }
 
@@ -265,8 +265,8 @@ public class RollupCreateBlockTest {
             true,
             RollupCreateBlockStatus.PROCESSED);
 
-    assertThat(result.getFailedTransactionsReceipts()).isNotEmpty();
-    assertThat(result.getFailedTransactionsReceipts().get(0).getTransactionHash())
+    assertThat(result.getInvalidTransactions()).isNotEmpty();
+    assertThat(result.getInvalidTransactions().get(0).getTransaction())
         .isEqualTo(transaction3.getHash().toHexString());
 
     assertThat(result.getExecutionPayload()).isNotNull();
@@ -285,7 +285,7 @@ public class RollupCreateBlockTest {
             RollupCreateBlockStatus.BLOCK_GAS_LIMIT_EXCEEDED);
 
     assertThat(result.getExecutionPayload()).isNull();
-    assertThat(result.getFailedTransactionsReceipts()).isNull();
+    assertThat(result.getInvalidTransactions()).isNull();
   }
 
   private RollupCreateBlockResult assertStatus(

@@ -21,6 +21,7 @@ import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.BlockValidator.Result;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.blockcreation.BlockTransactionSelector.TransactionSelectionResults;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningParameters;
@@ -55,6 +56,7 @@ public class RollupMergeCoordinator extends MergeCoordinator implements MergeMin
     private final PayloadIdentifier blockIdentifier;
     private final Block block;
     private final Result blockExecutionResult;
+    private final TransactionSelectionResults transactionSelectionResults;
 
     public BlockCreationResult(
         final PayloadIdentifier blockIdentifier,
@@ -63,6 +65,22 @@ public class RollupMergeCoordinator extends MergeCoordinator implements MergeMin
       this.blockIdentifier = blockIdentifier;
       this.block = block;
       this.blockExecutionResult = blockExecutionResult;
+      this.transactionSelectionResults = new TransactionSelectionResults();
+    }
+
+    public BlockCreationResult(
+        final PayloadIdentifier blockIdentifier,
+        final Block block,
+        final Result blockExecutionResult,
+        final TransactionSelectionResults transactionProcessingResults) {
+      this.blockIdentifier = blockIdentifier;
+      this.block = block;
+      this.blockExecutionResult = blockExecutionResult;
+      this.transactionSelectionResults = transactionProcessingResults;
+    }
+
+    public TransactionSelectionResults getTransactionSelectionResults() {
+      return transactionSelectionResults;
     }
 
     public Block getBlock() {
@@ -98,12 +116,13 @@ public class RollupMergeCoordinator extends MergeCoordinator implements MergeMin
     if (result.blockProcessingOutputs.isPresent()) {
       mergeContext.putPayloadById(payloadIdentifier, block);
     } else {
-      LOG.warn(
-          "failed to execute empty block proposal {}, reason {}",
-          block.getHash(),
-          result.errorMessage);
+      LOG.warn("Failed to execute new block {}, reason {}", block.getHash(), result.errorMessage);
     }
 
-    return new BlockCreationResult(payloadIdentifier, block, result);
+    return new BlockCreationResult(
+        payloadIdentifier,
+        block,
+        result,
+        (TransactionSelectionResults) block.getTransactionSelectionResults().get());
   }
 }

@@ -30,19 +30,14 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.RollupCreateBlockResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionReceiptResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionReceiptRootResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionReceiptStatusResult;
-import org.hyperledger.besu.ethereum.api.query.TransactionReceiptWithMetadata;
-import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.blockcreation.BlockTransactionSelector.TransactionSelectionResults;
+import org.hyperledger.besu.ethereum.blockcreation.BlockTransactionSelector.TransactionValidationResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
-import org.hyperledger.besu.ethereum.mainnet.TransactionReceiptType;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -53,6 +48,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@SuppressWarnings("UnusedVariable")
 public class RollupCreateBlock extends ExecutionEngineJsonRpcMethod {
 
   private static final Logger LOG = LoggerFactory.getLogger(RollupCreateBlock.class);
@@ -93,7 +89,6 @@ public class RollupCreateBlock extends ExecutionEngineJsonRpcMethod {
       blockGasLimit = requestContext.getRequiredParameter(4, UnsignedLongParameter.class);
       timestamp = Long.decode(requestContext.getRequiredParameter(5, String.class));
       // skipInvalidTransactions = requestContext.getRequiredParameter(4, Boolean.class);
-      System.out.println("rawTransactions: " + rawTransactions);
       transactions =
           rawTransactions.stream()
               .map(Object::toString)
@@ -111,7 +106,6 @@ public class RollupCreateBlock extends ExecutionEngineJsonRpcMethod {
     }
 
     try {
-
       BlockCreationResult result =
           mergeCoordinator.createBlock(
               parentBlock.get(),
@@ -130,58 +124,28 @@ public class RollupCreateBlock extends ExecutionEngineJsonRpcMethod {
               RollupCreateBlockStatus.PROCESSED,
               result.getBlockIdentifier(),
               payloadResult,
-              failedTransactionsResults(result)));
+              invalidTransactionResults(result.getTransactionSelectionResults())));
     } catch (Exception e) {
-      LOG.error("Failed to creat block.", e);
-      throw e;
+      LOG.error("Failed to create block: ", e);
+      return new JsonRpcErrorResponse(requestId, JsonRpcError.INTERNAL_ERROR);
     }
   }
 
-  private List<TransactionReceiptResult> failedTransactionsResults(
-      final BlockCreationResult result) {
-    final Block block = result.getBlock();
-    final List<Transaction> transactions = block.getBody().getTransactions();
-    final List<TransactionReceipt> transactionReceipts =
-        result.getBlockExecutionResult().blockProcessingOutputs.get().receipts;
-    final List<TransactionReceiptResult> failedTransactions = new ArrayList<>();
+  private List<RollupCreateBlockResult.InvalidTransactionResult> invalidTransactionResults(
+      final TransactionSelectionResults transactionSelectionResults) {
 
-    for (int txIndex = 0; txIndex < transactions.size(); txIndex++) {
-      var txReceipt = transactionReceipts.get(txIndex);
+    return transactionSelectionResults.getInvalidTransactions().stream()
+        .map(
+            (TransactionValidationResult txValidation) -> {
+              var transactionRlp = new BytesValueRLPOutput();
+              txValidation.getTransaction().writeTo(transactionRlp);
 
-      if (isFailedTransaction(txReceipt)) {
-        var tx = transactions.get(txIndex);
-        var txReceiptMeta =
-            TransactionReceiptWithMetadata.create(
-                txReceipt,
-                tx,
-                tx.getHash(),
-                // TODO: double check if this transaction index is block based (it seems to me to
-                // be)
-                //  or is whole blockchain index;
-                txIndex,
-                txReceipt.getCumulativeGasUsed(),
-                block.getHeader().getBaseFee(),
-                block.getHash(),
-                block.getHeader().getNumber());
-
-        failedTransactions.add(toTransactionReceiptResult(txReceiptMeta));
-      }
-    }
-
-    return failedTransactions;
-  }
-
-  private static boolean isFailedTransaction(final TransactionReceipt txReceipt) {
-    return txReceipt.getStatus() == 0;
-  }
-
-  static TransactionReceiptResult toTransactionReceiptResult(
-      final TransactionReceiptWithMetadata receipt) {
-    if (receipt.getReceipt().getTransactionReceiptType() == TransactionReceiptType.ROOT) {
-      return new TransactionReceiptRootResult(receipt);
-    } else {
-      return new TransactionReceiptStatusResult(receipt);
-    }
+              return new RollupCreateBlockResult.InvalidTransactionResult(
+                  transactionRlp.encoded().toHexString(),
+                  txValidation.getValidationResult().getInvalidReason(),
+                  txValidation.getValidationResult().getErrorMessage());
+            })
+        .collect(Collectors.toList());
   }
 
   private JsonRpcResponse replyWithStatus(
