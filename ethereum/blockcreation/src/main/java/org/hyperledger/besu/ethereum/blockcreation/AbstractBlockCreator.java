@@ -49,7 +49,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import com.google.common.collect.Lists;
@@ -126,25 +125,25 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
    * @return a block with appropriately selected transactions, seals and ommers.
    */
   @Override
-  public Block createBlock(final long timestamp) {
+  public BlockCreationResult createBlock(final long timestamp) {
     return createBlock(Optional.empty(), Optional.empty(), timestamp);
   }
 
   @Override
-  public Block createBlock(
+  public BlockCreationResult createBlock(
       final List<Transaction> transactions, final List<BlockHeader> ommers, final long timestamp) {
     return createBlock(Optional.of(transactions), Optional.of(ommers), timestamp);
   }
 
   @Override
-  public Block createBlock(
+  public BlockCreationResult createBlock(
       final Optional<List<Transaction>> maybeTransactions,
       final Optional<List<BlockHeader>> maybeOmmers,
       final long timestamp) {
     return createBlock(maybeTransactions, maybeOmmers, Optional.empty(), timestamp, true);
   }
 
-  protected Block createBlock(
+  protected BlockCreationResult createBlock(
       final Optional<List<Transaction>> maybeTransactions,
       final Optional<List<BlockHeader>> maybeOmmers,
       final Optional<Bytes32> maybePrevRandao,
@@ -206,10 +205,9 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
       final BlockHeader blockHeader = createFinalBlockHeader(sealableBlockHeader);
 
-      return new Block(
-          blockHeader,
-          new BlockBody(transactionResults.getTransactions(), ommers),
-          new AtomicReference<>(transactionResults));
+      final Block block =
+          new Block(blockHeader, new BlockBody(transactionResults.getTransactions(), ommers));
+      return new BlockCreationResult(block, transactionResults);
     } catch (final SecurityModuleException ex) {
       throw new IllegalStateException("Failed to create block signature", ex);
     } catch (final CancellationException ex) {

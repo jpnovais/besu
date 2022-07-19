@@ -37,6 +37,7 @@ public class Block {
     this.transactionSelectionResults = new AtomicReference<>(null);
   }
 
+  @Deprecated
   public Block(
       final BlockHeader header,
       final BlockBody body,

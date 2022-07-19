@@ -17,7 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.rollup;
 
 public enum RollupCreateBlockStatus {
   INVALID_TERMINAL_BLOCK,
-  INVALID_TRANSACTIONS,
+  INVALID_BLOCK,
   BLOCK_GAS_LIMIT_EXCEEDED,
   PROCESSED;
 }

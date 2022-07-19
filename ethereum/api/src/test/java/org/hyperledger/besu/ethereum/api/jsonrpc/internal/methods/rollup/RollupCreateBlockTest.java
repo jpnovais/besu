@@ -24,7 +24,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator;
-import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator.BlockCreationResult;
+import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator.PayloadCreationResult;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
@@ -42,6 +42,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.RollupCreateBlockResult;
+import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
+import org.hyperledger.besu.ethereum.blockcreation.BlockTransactionSelector.TransactionSelectionResults;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -178,9 +180,9 @@ public class RollupCreateBlockTest {
   public void shouldReturnProcessedIfAllTransactionsAreValid() {
     when(blockchain.getBlockHeader(mockHash)).thenReturn(Optional.of(mock(BlockHeader.class)));
     var blockCreationResult =
-        new BlockCreationResult(
+        new PayloadCreationResult(
             mockPayloadId,
-            mockEmptyBlock,
+            new BlockCreationResult(mockEmptyBlock, new TransactionSelectionResults()),
             new BlockValidator.Result(new BlockProcessingOutputs(null, Collections.emptyList())));
     when(mergeCoordinator.createBlock(any(), any(), any(), any(), any(), any()))
         .thenReturn(blockCreationResult);
@@ -210,67 +212,6 @@ public class RollupCreateBlockTest {
         .isEqualTo(feeRecipient.toHexString());
     assertThat(result.getExecutionPayload().getPrevRandao())
         .isEqualTo(mockEmptyBlock.getHeader().getPrevRandao().get().toHexString());
-  }
-
-  @Disabled("Not supported: This design decision will be reconsidered")
-  public void shouldReturnInvalidTransactionsIfOneTransactionIsInvalidAndSkipFlagIsFalse() {
-    final Transaction transaction3 =
-        Transaction.builder()
-            .chainId(new BigInteger("1559", 10))
-            .nonce(transaction1.getNonce())
-            .value(Wei.of(10))
-            .gasLimit(3000)
-            .maxPriorityFeePerGas(Wei.of(2))
-            .payload(Bytes.EMPTY.trimLeadingZeros())
-            .maxFeePerGas(Wei.of(new BigInteger("5000000000", 10)))
-            .gasPrice(null)
-            .to(Address.fromHexString("0x000000000000000000000000000000000000aaab"))
-            .type(TransactionType.EIP1559)
-            .signAndBuild(keyPair);
-    final var result =
-        assertStatus(
-            mockHash,
-            List.of(transaction1, transaction2, transaction3),
-            blockGasLimit,
-            false,
-            RollupCreateBlockStatus.INVALID_TRANSACTIONS);
-
-    assertThat(result.getExecutionPayload()).isNull();
-    assertThat(result.getInvalidTransactions()).isNotEmpty();
-    assertThat(result.getInvalidTransactions().get(0).getTransaction())
-        .isEqualTo(transaction3.getHash().toHexString());
-  }
-
-  @Disabled("Not supported: This design decision will be reconsidered")
-  public void shouldReturnProcessedIfOneTransactionIsInvalidAndSkipFlagIsTrue() {
-    final Transaction transaction3 =
-        Transaction.builder()
-            .chainId(new BigInteger("1559", 10))
-            .nonce(transaction1.getNonce())
-            .value(Wei.of(10))
-            .gasLimit(3000)
-            .maxPriorityFeePerGas(Wei.of(2))
-            .payload(Bytes.EMPTY.trimLeadingZeros())
-            .maxFeePerGas(Wei.of(new BigInteger("5000000000", 10)))
-            .gasPrice(null)
-            .to(Address.fromHexString("0x000000000000000000000000000000000000aaab"))
-            .type(TransactionType.EIP1559)
-            .signAndBuild(keyPair);
-
-    final var result =
-        assertStatus(
-            mockHash,
-            List.of(transaction1, transaction2, transaction3),
-            blockGasLimit,
-            true,
-            RollupCreateBlockStatus.PROCESSED);
-
-    assertThat(result.getInvalidTransactions()).isNotEmpty();
-    assertThat(result.getInvalidTransactions().get(0).getTransaction())
-        .isEqualTo(transaction3.getHash().toHexString());
-
-    assertThat(result.getExecutionPayload()).isNotNull();
-    // TODO: assert execution payload
   }
 
   @Disabled("Not supported yet")

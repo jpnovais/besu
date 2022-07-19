@@ -68,7 +68,6 @@ public class RollupExtendedAcceptanceTest extends AcceptanceTestBase {
   private static final KeyPair account1KeyPair = keyPair(Accounts.GENESIS_ACCOUNT_ONE_PRIVATE_KEY);
 
   private BesuNode executionEngineNode;
-  private OkHttpClient consensusClient;
   private Web3j web3j;
   private EngineApiClient engineApiClient;
 
@@ -78,9 +77,8 @@ public class RollupExtendedAcceptanceTest extends AcceptanceTestBase {
         besu.createExecutionEngineGenesisNode("rollup-execution-engine", GENESIS_FILE);
     cluster.start(executionEngineNode);
 
-    consensusClient = httpClient(false);
     engineApiClient =
-        new EngineApiClient(consensusClient, executionEngineNode.engineRpcUrl().orElseThrow());
+        new EngineApiClient(httpClient(false), executionEngineNode.engineRpcUrl().orElseThrow());
 
     final String jsonRpcApiUrl =
         "http://"
@@ -326,7 +324,7 @@ public class RollupExtendedAcceptanceTest extends AcceptanceTestBase {
               transactions,
               Bytes32.random().toHexString(), // prevRandao
               Address.extract(Bytes32.random()).toHexString(), // feeRecipient
-              "0xffffffff", // blockGasLimit
+              "0xa400", // blockGasLimit
               Numeric.toHexStringWithPrefix(BigInteger.valueOf(Instant.now().getEpochSecond()))
               // timestamp
               ));

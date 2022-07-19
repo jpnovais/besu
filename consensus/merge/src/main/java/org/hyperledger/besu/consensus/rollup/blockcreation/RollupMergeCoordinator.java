@@ -19,10 +19,11 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.BlockValidator.Result;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.blockcreation.BlockTransactionSelector.TransactionSelectionResults;
-import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.blockcreation.BlockCreator;
+import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningParameters;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -51,52 +52,35 @@ public class RollupMergeCoordinator extends MergeCoordinator implements MergeMin
         protocolContext, protocolSchedule, pendingTransactions, miningParams, backwardSyncContext);
   }
 
-  public static class BlockCreationResult {
+  public static class PayloadCreationResult {
 
-    private final PayloadIdentifier blockIdentifier;
-    private final Block block;
-    private final Result blockExecutionResult;
-    private final TransactionSelectionResults transactionSelectionResults;
+    private final PayloadIdentifier payloadIdentifier;
+    private final BlockCreationResult blockCreationResult;
+    private final BlockValidator.Result blockValidationResult;
 
-    public BlockCreationResult(
-        final PayloadIdentifier blockIdentifier,
-        final Block block,
-        final Result blockExecutionResult) {
-      this.blockIdentifier = blockIdentifier;
-      this.block = block;
-      this.blockExecutionResult = blockExecutionResult;
-      this.transactionSelectionResults = new TransactionSelectionResults();
+    public PayloadCreationResult(
+        final PayloadIdentifier payloadIdentifier,
+        final BlockCreationResult blockCreationResult,
+        final Result blockValidationResult) {
+      this.payloadIdentifier = payloadIdentifier;
+      this.blockCreationResult = blockCreationResult;
+      this.blockValidationResult = blockValidationResult;
     }
 
-    public BlockCreationResult(
-        final PayloadIdentifier blockIdentifier,
-        final Block block,
-        final Result blockExecutionResult,
-        final TransactionSelectionResults transactionProcessingResults) {
-      this.blockIdentifier = blockIdentifier;
-      this.block = block;
-      this.blockExecutionResult = blockExecutionResult;
-      this.transactionSelectionResults = transactionProcessingResults;
+    public PayloadIdentifier getPayloadId() {
+      return payloadIdentifier;
     }
 
-    public TransactionSelectionResults getTransactionSelectionResults() {
-      return transactionSelectionResults;
+    public BlockCreationResult getBlockCreationResult() {
+      return blockCreationResult;
     }
 
-    public Block getBlock() {
-      return block;
-    }
-
-    public PayloadIdentifier getBlockIdentifier() {
-      return blockIdentifier;
-    }
-
-    public Result getBlockExecutionResult() {
-      return blockExecutionResult;
+    public Result getBlockValidationResult() {
+      return blockValidationResult;
     }
   }
 
-  public BlockCreationResult createBlock(
+  public PayloadCreationResult createBlock(
       final BlockHeader parentHeader,
       final Long timestamp,
       final Address feeRecipient,
@@ -109,20 +93,20 @@ public class RollupMergeCoordinator extends MergeCoordinator implements MergeMin
         this.mergeBlockCreator.forParams(
             parentHeader, Optional.ofNullable(feeRecipient), optionalBlockGasLimit);
 
-    final Block block =
+    final BlockCreator.BlockCreationResult blockCreationResult =
         mergeBlockCreator.createBlock(Optional.of(transactions), prevRandao, timestamp);
 
-    Result result = validateBlock(block);
-    if (result.blockProcessingOutputs.isPresent()) {
-      mergeContext.putPayloadById(payloadIdentifier, block);
+    // TODO: double-check if this validation is necessary;
+    BlockValidator.Result blockValidationResult = validateBlock(blockCreationResult.getBlock());
+    if (blockValidationResult.isValid) {
+      mergeContext.putPayloadById(payloadIdentifier, blockCreationResult.getBlock());
     } else {
-      LOG.warn("Failed to execute new block {}, reason {}", block.getHash(), result.errorMessage);
+      LOG.warn(
+          "Failed to execute new block {}, reason {}",
+          blockCreationResult.getBlock().getHash(),
+          blockValidationResult.errorMessage);
     }
 
-    return new BlockCreationResult(
-        payloadIdentifier,
-        block,
-        result,
-        (TransactionSelectionResults) block.getTransactionSelectionResults().get());
+    return new PayloadCreationResult(payloadIdentifier, blockCreationResult, blockValidationResult);
   }
 }

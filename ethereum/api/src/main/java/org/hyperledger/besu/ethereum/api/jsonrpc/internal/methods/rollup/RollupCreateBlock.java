@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.rollup;
 
 import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator;
-import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator.BlockCreationResult;
+import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator.PayloadCreationResult;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.RollupCreateBlockResult;
+import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
 import org.hyperledger.besu.ethereum.blockcreation.BlockTransactionSelector.TransactionSelectionResults;
 import org.hyperledger.besu.ethereum.blockcreation.BlockTransactionSelector.TransactionValidationResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -106,7 +107,7 @@ public class RollupCreateBlock extends ExecutionEngineJsonRpcMethod {
     }
 
     try {
-      BlockCreationResult result =
+      final PayloadCreationResult result =
           mergeCoordinator.createBlock(
               parentBlock.get(),
               timestamp,
@@ -115,16 +116,25 @@ public class RollupCreateBlock extends ExecutionEngineJsonRpcMethod {
               prevRandao,
               Optional.of(blockGasLimit.getValue()));
 
-      EngineGetPayloadResult payloadResult =
-          blockResultFactory.enginePayloadTransactionComplete(result.getBlock());
+      if (result.getBlockValidationResult().errorMessage.isPresent()) {
+        return new JsonRpcSuccessResponse(
+            requestId,
+            new RollupCreateBlockResult(
+                RollupCreateBlockStatus.INVALID_BLOCK,
+                result.getBlockValidationResult().errorMessage));
+      }
+
+      final BlockCreationResult blockCreationResult = result.getBlockCreationResult();
+      final EngineGetPayloadResult payloadResult =
+          blockResultFactory.enginePayloadTransactionComplete(blockCreationResult.getBlock());
 
       return new JsonRpcSuccessResponse(
           requestId,
           new RollupCreateBlockResult(
               RollupCreateBlockStatus.PROCESSED,
-              result.getBlockIdentifier(),
+              result.getPayloadId(),
               payloadResult,
-              invalidTransactionResults(result.getTransactionSelectionResults())));
+              invalidTransactionResults(blockCreationResult.getTransactionSelectionResults())));
     } catch (Exception e) {
       LOG.error("Failed to create block: ", e);
       return new JsonRpcErrorResponse(requestId, JsonRpcError.INTERNAL_ERROR);

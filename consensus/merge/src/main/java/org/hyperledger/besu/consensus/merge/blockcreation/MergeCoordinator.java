@@ -175,7 +175,9 @@ public class MergeCoordinator implements MergeMiningCoordinator {
 
     // put the empty block in first
     final Block emptyBlock =
-        mergeBlockCreator.createBlock(Optional.of(Collections.emptyList()), random, timestamp);
+        mergeBlockCreator
+            .createBlock(Optional.of(Collections.emptyList()), random, timestamp)
+            .getBlock();
 
     Result result = validateBlock(emptyBlock);
     if (result.blockProcessingOutputs.isPresent()) {
@@ -192,7 +194,8 @@ public class MergeCoordinator implements MergeMiningCoordinator {
             () -> mergeBlockCreator.createBlock(Optional.empty(), random, timestamp))
         .orTimeout(12, TimeUnit.SECONDS)
         .whenComplete(
-            (bestBlock, throwable) -> {
+            (blockCreationResult, throwable) -> {
+              final var bestBlock = blockCreationResult.getBlock();
               if (throwable != null) {
                 LOG.warn("something went wrong creating block", throwable);
               } else {

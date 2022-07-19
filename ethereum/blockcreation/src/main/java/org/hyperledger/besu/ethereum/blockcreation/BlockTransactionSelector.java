@@ -37,6 +37,7 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.function.Supplier;
 
@@ -89,6 +90,24 @@ public class BlockTransactionSelector {
     public ValidationResult<TransactionInvalidReason> getValidationResult() {
       return validationResult;
     }
+
+    @Override
+    public boolean equals(final Object o) {
+      if (this == o) {
+        return true;
+      }
+      if (o == null || getClass() != o.getClass()) {
+        return false;
+      }
+      TransactionValidationResult that = (TransactionValidationResult) o;
+      return Objects.equals(transaction, that.transaction)
+          && Objects.equals(validationResult, that.validationResult);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(transaction, validationResult);
+    }
   }
 
   public static class TransactionSelectionResults {
@@ -125,6 +144,26 @@ public class BlockTransactionSelector {
 
     public List<TransactionValidationResult> getInvalidTransactions() {
       return invalidTransactions;
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+      if (this == o) {
+        return true;
+      }
+      if (o == null || getClass() != o.getClass()) {
+        return false;
+      }
+      TransactionSelectionResults that = (TransactionSelectionResults) o;
+      return cumulativeGasUsed == that.cumulativeGasUsed
+          && transactions.equals(that.transactions)
+          && receipts.equals(that.receipts)
+          && invalidTransactions.equals(that.invalidTransactions);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(transactions, receipts, invalidTransactions, cumulativeGasUsed);
     }
   }
 

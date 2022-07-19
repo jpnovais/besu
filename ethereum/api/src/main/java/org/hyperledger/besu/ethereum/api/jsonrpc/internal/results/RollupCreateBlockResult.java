@@ -24,12 +24,19 @@ import java.util.Optional;
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
-@JsonPropertyOrder({"status", "payloadId", "executionPayload", "failedTransactions"})
+@JsonPropertyOrder({
+  "status",
+  "errorMessage",
+  "payloadId",
+  "executionPayload",
+  "failedTransactions"
+})
 public class RollupCreateBlockResult {
   private final RollupCreateBlockStatus status;
   private final PayloadIdentifier payloadId;
   private final EngineGetPayloadResult executionPayload;
   private final List<InvalidTransactionResult> invalidTransactions;
+  private final Optional<String> errorMessage;
 
   public RollupCreateBlockResult(
       final RollupCreateBlockStatus status,
@@ -40,11 +47,26 @@ public class RollupCreateBlockResult {
     this.payloadId = payloadId;
     this.executionPayload = executionPayload;
     this.invalidTransactions = invalidTransactions;
+    this.errorMessage = Optional.empty();
+  }
+
+  public RollupCreateBlockResult(
+      final RollupCreateBlockStatus status, final Optional<String> errorMessage) {
+    this.status = status;
+    this.errorMessage = errorMessage;
+    this.payloadId = null;
+    this.executionPayload = null;
+    this.invalidTransactions = null;
   }
 
   @JsonGetter(value = "status")
   public RollupCreateBlockStatus getStatus() {
     return status;
+  }
+
+  @JsonGetter(value = "errorMessage")
+  public String getErrorMessage() {
+    return errorMessage.orElse(null);
   }
 
   @JsonGetter(value = "payloadId")
