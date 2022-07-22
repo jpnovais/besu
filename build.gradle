@@ -594,9 +594,9 @@ artifactoryPublish {
 
 def dockerVariants = [
   "openjdk-11",
-  "openjdk-11-debug",
-  "graalvm",
-  "openjdk-latest"
+//  "openjdk-11-debug",
+//  "graalvm",
+//  "openjdk-latest"
 ]
 
 // rename the top level dir from besu-<version> to besu and this makes it really
@@ -624,7 +624,7 @@ task distDocker {
   inputs.dir("build/docker-besu/")
   def dockerBuildVersion = project.hasProperty('release.releaseVersion') ? project.property('release.releaseVersion') : "${rootProject.version}"
   def dockerBuildDir = "build/docker-besu/"
-  def imageName = "hyperledger/besu"
+  def imageName = "jpnovais/besu"
 
   doLast {
     for (def variant in dockerVariants) {
@@ -707,7 +707,7 @@ task acceptanceTestsQuorum {
   }
 }
 
-def dockerImage = "hyperledger/besu"
+def dockerImage = "jpnovais/besu"
 
 task dockerUpload {
   dependsOn distDocker
@@ -720,10 +720,10 @@ task dockerUpload {
     additionalTags.add('develop')
   }
 
-  if (!(dockerBuildVersion ==~ /.*-SNAPSHOT/)) {
-    additionalTags.add('latest')
-    additionalTags.add(dockerBuildVersion.split(/\./)[0..1].join('.'))
-  }
+//  if (!(dockerBuildVersion ==~ /.*-SNAPSHOT/)) {
+//    additionalTags.add('latest')
+//    additionalTags.add(dockerBuildVersion.split(/\./)[0..1].join('.'))
+//  }
 
   doLast {
     for (def variant in dockerVariants) {
@@ -758,10 +758,10 @@ task manifestDocker {
     tags.add("${dockerImage}:develop")
   }
 
-  if (!(dockerBuildVersion ==~ /.*-SNAPSHOT/)) {
-    tags.add("${dockerImage}:latest")
-    tags.add("${dockerImage}:" + dockerBuildVersion.split(/\./)[0..1].join('.'))
-  }
+//  if (!(dockerBuildVersion ==~ /.*-SNAPSHOT/)) {
+//    tags.add("${dockerImage}:latest")
+//    tags.add("${dockerImage}:" + dockerBuildVersion.split(/\./)[0..1].join('.'))
+//  }
 
   doLast {
     for (baseTag in tags) {
