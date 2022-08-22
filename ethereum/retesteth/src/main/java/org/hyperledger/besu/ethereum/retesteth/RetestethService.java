@@ -29,6 +29,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetTransact
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthSendRawTransaction;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Web3ClientVersion;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdated;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetPayload;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayload;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.rollup.RollupCreatePayload;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.retesteth.methods.TestGetLogHash;
@@ -43,29 +47,81 @@ import org.hyperledger.besu.nat.NatService;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 import io.vertx.core.Vertx;
+import io.vertx.core.VertxOptions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class RetestethService {
-
-  private final JsonRpcHttpService jsonRpcHttpService;
-  private final Vertx vertx;
+  private static final Logger LOG = LoggerFactory.getLogger(RetestethService.class);
+  private final Synchronizer sync = new DummySynchronizer();
 
   private final RetestethContext retestethContext;
+  private final String clientVersion;
+  private final RetestethConfiguration retestethConfiguration;
+  private final JsonRpcConfiguration jsonRpcConfiguration;
+
+  private final Vertx vertx;
+  private JsonRpcHttpService jsonRpcHttpService;
 
   public RetestethService(
       final String clientVersion,
       final RetestethConfiguration retestethConfiguration,
       final JsonRpcConfiguration jsonRpcConfiguration) {
-    vertx = Vertx.vertx();
-    retestethContext = new RetestethContext();
+    this.clientVersion = clientVersion;
+    this.retestethConfiguration = retestethConfiguration;
+    this.jsonRpcConfiguration = jsonRpcConfiguration;
+    vertx = Vertx.vertx(new VertxOptions().setWorkerPoolSize(1));
+    retestethContext = new RetestethContext(__ -> {}, __ -> this.resetHttpService());
 
-    final BlockResultFactory blockResult = new BlockResultFactory();
     final NatService natService = new NatService(Optional.empty());
+    jsonRpcHttpService =
+        new JsonRpcHttpService(
+            vertx,
+            retestethConfiguration.getDataPath(),
+            jsonRpcConfiguration,
+            new NoOpMetricsSystem(),
+            natService,
+            mapOf(new TestSetChainParams(retestethContext)),
+            new HealthService(new LivenessCheck()),
+            HealthService.ALWAYS_HEALTHY);
+  }
 
-    // Synchronizer needed by RPC methods. Didn't wanna mock it, since this isn't the test module.
-    Synchronizer sync = new DummySynchronizer();
+  private void resetHttpService() {
+    final NatService natService = new NatService(Optional.empty());
+    final var newJsonRpcHttpService =
+        new JsonRpcHttpService(
+            vertx,
+            retestethConfiguration.getDataPath(),
+            jsonRpcConfiguration,
+            new NoOpMetricsSystem(),
+            natService,
+            rpcMethods(),
+            new HealthService(new LivenessCheck()),
+            HealthService.ALWAYS_HEALTHY);
+
+    try {
+      final var newJsonRpcHttpServiceFuture = newJsonRpcHttpService.start();
+      CompletableFuture<?> jsonRpcHttpServiceStopFuture = CompletableFuture.completedFuture(null);
+      if (jsonRpcHttpService != null) {
+        jsonRpcHttpServiceStopFuture = jsonRpcHttpService.stop();
+      }
+      CompletableFuture.allOf(newJsonRpcHttpServiceFuture, jsonRpcHttpServiceStopFuture).get();
+      LOG.trace("Restarted new JsonRpcHttpService");
+
+      jsonRpcHttpService = newJsonRpcHttpService;
+    } catch (InterruptedException | ExecutionException e) {
+      e.printStackTrace();
+      throw new RuntimeException(e);
+    }
+  }
+
+  private Map<String, JsonRpcMethod> rpcMethods() {
+    final BlockResultFactory blockResult = new BlockResultFactory();
 
     final Map<String, JsonRpcMethod> jsonRpcMethods =
         mapOf(
@@ -87,18 +143,23 @@ public class RetestethService {
             new EthSendRawTransaction(retestethContext::getTransactionPool, true),
             new TestMineBlocks(retestethContext),
             new TestGetLogHash(retestethContext),
-            new TestRewindToBlock(retestethContext));
+            new TestRewindToBlock(retestethContext),
+            new EngineNewPayload(
+                vertx,
+                retestethContext.getProtocolContext(),
+                retestethContext.getRollupCoordinator()),
+            new EngineGetPayload(vertx, retestethContext.getProtocolContext(), blockResult),
+            new EngineForkchoiceUpdated(
+                vertx,
+                retestethContext.getProtocolContext(),
+                retestethContext.getRollupCoordinator()),
+            new RollupCreatePayload(
+                vertx,
+                retestethContext.getProtocolContext(),
+                retestethContext.getRollupCoordinator(),
+                new BlockResultFactory()));
 
-    jsonRpcHttpService =
-        new JsonRpcHttpService(
-            vertx,
-            retestethConfiguration.getDataPath(),
-            jsonRpcConfiguration,
-            new NoOpMetricsSystem(),
-            natService,
-            jsonRpcMethods,
-            new HealthService(new LivenessCheck()),
-            HealthService.ALWAYS_HEALTHY);
+    return jsonRpcMethods;
   }
 
   public void start() {

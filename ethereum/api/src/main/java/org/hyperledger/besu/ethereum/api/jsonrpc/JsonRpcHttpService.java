@@ -228,7 +228,6 @@ public class JsonRpcHttpService {
           .listen(
               res -> {
                 if (!res.failed()) {
-                  resultFuture.complete(null);
                   config.setPort(httpServer.actualPort());
                   LOG.info(
                       "JSON-RPC service started and listening on {}:{}{}",
@@ -243,6 +242,7 @@ public class JsonRpcHttpService {
                               .requestPortForward(
                                   config.getPort(), NetworkProtocol.TCP, NatServiceType.JSON_RPC));
 
+                  resultFuture.complete(null);
                   return;
                 }
 
@@ -398,7 +398,8 @@ public class JsonRpcHttpService {
             .setHost(config.getHost())
             .setPort(config.getPort())
             .setHandle100ContinueAutomatically(true)
-            .setCompressionSupported(true);
+            .setCompressionSupported(true)
+            .setReusePort(true);
 
     applyTlsConfig(httpServerOptions);
     return httpServerOptions;

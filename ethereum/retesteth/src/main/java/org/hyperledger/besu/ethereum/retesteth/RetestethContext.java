@@ -18,6 +18,8 @@ import static org.hyperledger.besu.config.JsonUtil.normalizeKeys;
 
 import org.hyperledger.besu.config.JsonGenesisConfigOptions;
 import org.hyperledger.besu.config.JsonUtil;
+import org.hyperledger.besu.consensus.merge.PostMergeContext;
+import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -38,6 +40,8 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -67,6 +71,7 @@ import org.hyperledger.besu.util.Subscribers;
 
 import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.tuweni.bytes.Bytes;
@@ -97,12 +102,31 @@ public class RetestethContext {
   private EthScheduler ethScheduler;
   private PoWSolver poWSolver;
 
+  private RollupMergeCoordinator rollupCoordinator;
+
+  private final Consumer<Void> beforeResetCallback;
+  private final Consumer<Void> afterResetCallback;
+
+  public RetestethContext() {
+    this(__ -> {}, __ -> {});
+  }
+
+  public RetestethContext(
+      final Consumer<Void> beforeResetCallback, final Consumer<Void> afterResetCallback) {
+    this.beforeResetCallback = beforeResetCallback;
+    this.afterResetCallback = afterResetCallback;
+  }
+
   public boolean resetContext(
       final String genesisConfigString, final String sealEngine, final Optional<Long> clockTime) {
     contextLock.lock();
     try {
+      LOG.trace("resetting context to: " + genesisConfigString);
+      beforeResetCallback.accept(null);
       tearDownContext();
-      return buildContext(genesisConfigString, sealEngine, clockTime);
+      final boolean isBuilt = buildContext(genesisConfigString, sealEngine, clockTime);
+      afterResetCallback.accept(null);
+      return isBuilt;
     } catch (final Exception e) {
       LOG.error("Error shutting down existing runner", e);
       return false;
@@ -153,7 +177,7 @@ public class RetestethContext {
     genesisState.writeStateTo(worldState);
 
     blockchain = createInMemoryBlockchain(genesisState.getBlock());
-    protocolContext = new ProtocolContext(blockchain, worldStateArchive, null);
+    protocolContext = new ProtocolContext(blockchain, worldStateArchive, PostMergeContext.get());
 
     blockchainQueries = new BlockchainQueries(blockchain, worldStateArchive, ethScheduler);
 
@@ -206,6 +230,8 @@ public class RetestethContext {
     final TransactionPoolConfiguration transactionPoolConfiguration =
         ImmutableTransactionPoolConfiguration.builder().build();
 
+    final var miningParameters =
+        new MiningParameters.Builder().minTransactionGasPrice(Wei.ZERO).build();
     transactionPool =
         TransactionPoolFactory.createTransactionPool(
             protocolSchedule,
@@ -214,12 +240,30 @@ public class RetestethContext {
             retestethClock,
             metricsSystem,
             syncState::isInitialSyncPhaseDone,
-            new MiningParameters.Builder().minTransactionGasPrice(Wei.ZERO).build(),
+            miningParameters,
             transactionPoolConfiguration);
 
     if (LOG.isTraceEnabled()) {
       LOG.trace("Genesis Block {} ", genesisState.getBlock());
     }
+
+    final var backwardSyncContext =
+        new BackwardSyncContext(
+            protocolContext,
+            protocolSchedule,
+            new NoOpMetricsSystem(),
+            ethContext,
+            syncState,
+            BackwardChain.from(
+                new InMemoryKeyValueStorageProvider(), new MainnetBlockHeaderFunctions()));
+
+    rollupCoordinator =
+        new RollupMergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            transactionPool.getPendingTransactions(),
+            miningParameters,
+            backwardSyncContext);
 
     return true;
   }
@@ -300,5 +344,9 @@ public class RetestethContext {
 
   public PoWSolver getEthHashSolver() {
     return poWSolver;
+  }
+
+  public RollupMergeCoordinator getRollupCoordinator() {
+    return rollupCoordinator;
   }
 }
