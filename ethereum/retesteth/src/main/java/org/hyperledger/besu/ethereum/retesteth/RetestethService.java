@@ -57,6 +57,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class RetestethService {
+
   private static final Logger LOG = LoggerFactory.getLogger(RetestethService.class);
   private final Synchronizer sync = new DummySynchronizer();
 
@@ -86,7 +87,7 @@ public class RetestethService {
             jsonRpcConfiguration,
             new NoOpMetricsSystem(),
             natService,
-            mapOf(new TestSetChainParams(retestethContext)),
+            rpcMethods(false),
             new HealthService(new LivenessCheck()),
             HealthService.ALWAYS_HEALTHY);
   }
@@ -100,7 +101,7 @@ public class RetestethService {
             jsonRpcConfiguration,
             new NoOpMetricsSystem(),
             natService,
-            rpcMethods(),
+            rpcMethods(true),
             new HealthService(new LivenessCheck()),
             HealthService.ALWAYS_HEALTHY);
 
@@ -120,7 +121,7 @@ public class RetestethService {
     }
   }
 
-  private Map<String, JsonRpcMethod> rpcMethods() {
+  private Map<String, JsonRpcMethod> rpcMethods(final boolean engineApiEnabled) {
     final BlockResultFactory blockResult = new BlockResultFactory();
 
     final Map<String, JsonRpcMethod> jsonRpcMethods =
@@ -128,6 +129,10 @@ public class RetestethService {
             new Web3ClientVersion(clientVersion),
             new TestSetChainParams(retestethContext),
             new TestImportRawBlock(retestethContext),
+            new TestModifyTimestamp(retestethContext),
+            new TestMineBlocks(retestethContext),
+            new TestGetLogHash(retestethContext),
+            new TestRewindToBlock(retestethContext),
             new EthBlockNumber(retestethContext::getBlockchainQueries, true),
             new EthGetBlockByNumber(
                 retestethContext::getBlockchainQueries, blockResult, sync, true),
@@ -139,25 +144,25 @@ public class RetestethService {
                 retestethContext::getBlockchainQueries, retestethContext::getPendingTransactions),
             new DebugStorageRangeAt(
                 retestethContext::getBlockchainQueries, retestethContext::getBlockReplay, true),
-            new TestModifyTimestamp(retestethContext),
-            new EthSendRawTransaction(retestethContext::getTransactionPool, true),
-            new TestMineBlocks(retestethContext),
-            new TestGetLogHash(retestethContext),
-            new TestRewindToBlock(retestethContext),
-            new EngineNewPayload(
-                vertx,
-                retestethContext.getProtocolContext(),
-                retestethContext.getRollupCoordinator()),
-            new EngineGetPayload(vertx, retestethContext.getProtocolContext(), blockResult),
-            new EngineForkchoiceUpdated(
-                vertx,
-                retestethContext.getProtocolContext(),
-                retestethContext.getRollupCoordinator()),
-            new RollupCreatePayload(
-                vertx,
-                retestethContext.getProtocolContext(),
-                retestethContext.getRollupCoordinator(),
-                new BlockResultFactory()));
+            new EthSendRawTransaction(retestethContext::getTransactionPool, true));
+    if (engineApiEnabled) {
+      jsonRpcMethods.putAll(mapOf(
+          new EngineNewPayload(
+              vertx,
+              retestethContext.getProtocolContext(),
+              retestethContext.getRollupCoordinator()),
+          new EngineGetPayload(vertx, retestethContext.getProtocolContext(), blockResult),
+          new EngineForkchoiceUpdated(
+              vertx,
+              retestethContext.getProtocolContext(),
+              retestethContext.getRollupCoordinator()),
+          new RollupCreatePayload(
+              vertx,
+              retestethContext.getProtocolContext(),
+              retestethContext.getRollupCoordinator(),
+              new BlockResultFactory())
+      ));
+    }
 
     return jsonRpcMethods;
   }
