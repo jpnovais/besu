@@ -67,6 +67,7 @@ public class RetestethService {
   private final JsonRpcConfiguration jsonRpcConfiguration;
 
   private final Vertx vertx;
+  private final Vertx syncVertx;
   private JsonRpcHttpService jsonRpcHttpService;
 
   public RetestethService(
@@ -76,7 +77,8 @@ public class RetestethService {
     this.clientVersion = clientVersion;
     this.retestethConfiguration = retestethConfiguration;
     this.jsonRpcConfiguration = jsonRpcConfiguration;
-    vertx = Vertx.vertx(new VertxOptions().setWorkerPoolSize(1));
+    vertx = Vertx.vertx();
+    syncVertx = Vertx.vertx(new VertxOptions().setWorkerPoolSize(1));
     retestethContext = new RetestethContext(__ -> {}, __ -> this.resetHttpService());
 
     final NatService natService = new NatService(Optional.empty());
@@ -146,22 +148,22 @@ public class RetestethService {
                 retestethContext::getBlockchainQueries, retestethContext::getBlockReplay, true),
             new EthSendRawTransaction(retestethContext::getTransactionPool, true));
     if (engineApiEnabled) {
-      jsonRpcMethods.putAll(mapOf(
-          new EngineNewPayload(
-              vertx,
-              retestethContext.getProtocolContext(),
-              retestethContext.getRollupCoordinator()),
-          new EngineGetPayload(vertx, retestethContext.getProtocolContext(), blockResult),
-          new EngineForkchoiceUpdated(
-              vertx,
-              retestethContext.getProtocolContext(),
-              retestethContext.getRollupCoordinator()),
-          new RollupCreatePayload(
-              vertx,
-              retestethContext.getProtocolContext(),
-              retestethContext.getRollupCoordinator(),
-              new BlockResultFactory())
-      ));
+      jsonRpcMethods.putAll(
+          mapOf(
+              new EngineNewPayload(
+                  syncVertx,
+                  retestethContext.getProtocolContext(),
+                  retestethContext.getRollupCoordinator()),
+              new EngineGetPayload(syncVertx, retestethContext.getProtocolContext(), blockResult),
+              new EngineForkchoiceUpdated(
+                  syncVertx,
+                  retestethContext.getProtocolContext(),
+                  retestethContext.getRollupCoordinator()),
+              new RollupCreatePayload(
+                  syncVertx,
+                  retestethContext.getProtocolContext(),
+                  retestethContext.getRollupCoordinator(),
+                  new BlockResultFactory())));
     }
 
     return jsonRpcMethods;
