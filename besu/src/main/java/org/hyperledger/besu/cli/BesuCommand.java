@@ -20,6 +20,7 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
 import static org.hyperledger.besu.cli.DefaultCommandValues.getDefaultBesuDataPath;
 import static org.hyperledger.besu.cli.config.NetworkName.MAINNET;
+import static org.hyperledger.besu.cli.config.NetworkName.isMergedNetwork;
 import static org.hyperledger.besu.cli.util.CommandLineUtils.DEPENDENCY_WARNING_MSG;
 import static org.hyperledger.besu.cli.util.CommandLineUtils.DEPRECATED_AND_USELESS_WARNING_MSG;
 import static org.hyperledger.besu.cli.util.CommandLineUtils.DEPRECATION_WARNING_MSG;
@@ -69,6 +70,7 @@ import org.hyperledger.besu.cli.options.unstable.NetworkingOptions;
 import org.hyperledger.besu.cli.options.unstable.PkiBlockCreationOptions;
 import org.hyperledger.besu.cli.options.unstable.PrivacyPluginOptions;
 import org.hyperledger.besu.cli.options.unstable.RPCOptions;
+import org.hyperledger.besu.cli.options.unstable.RollupOptions;
 import org.hyperledger.besu.cli.options.unstable.SynchronizerOptions;
 import org.hyperledger.besu.cli.options.unstable.TransactionPoolOptions;
 import org.hyperledger.besu.cli.presynctasks.PreSynchronizationTaskRunner;
@@ -92,6 +94,7 @@ import org.hyperledger.besu.consensus.qbft.pki.PkiBlockCreationConfiguration;
 import org.hyperledger.besu.consensus.qbft.pki.PkiBlockCreationConfigurationProvider;
 import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.controller.BesuControllerBuilder;
+import org.hyperledger.besu.crypto.Blake2bfMessageDigest;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.KeyPairSecurityModule;
 import org.hyperledger.besu.crypto.KeyPairUtil;
@@ -185,6 +188,7 @@ import org.hyperledger.besu.util.PermissioningConfigurationValidator;
 import org.hyperledger.besu.util.number.Fraction;
 import org.hyperledger.besu.util.number.Percentage;
 import org.hyperledger.besu.util.number.PositiveNumber;
+import org.hyperledger.besu.util.platform.PlatformDetector;
 
 import java.io.File;
 import java.io.IOException;
@@ -286,6 +290,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final PrivacyPluginOptions unstablePrivacyPluginOptions = PrivacyPluginOptions.create();
   private final EvmOptions unstableEvmOptions = EvmOptions.create();
   private final IpcOptions unstableIpcOptions = IpcOptions.create();
+  private final RollupOptions unstableRollupOptions = RollupOptions.create();
 
   // stable CLI options
   private final DataStorageOptions dataStorageOptions = DataStorageOptions.create();
@@ -424,10 +429,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     private final Integer p2pPort = EnodeURLImpl.DEFAULT_LISTENING_PORT;
 
     @Option(
-        names = {"--max-peers"},
+        names = {"--max-peers", "--p2p-peer-upper-bound"},
         paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
         description = "Maximum P2P connections that can be established (default: ${DEFAULT-VALUE})")
     private final Integer maxPeers = DEFAULT_MAX_PEERS;
+
+    private int minPeers;
 
     @Option(
         names = {"--remote-connections-limit-enabled"},
@@ -503,8 +510,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       names = {"--fast-sync-min-peers"},
       paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
       description =
-          "Minimum number of peers required before starting fast sync. (default: ${DEFAULT-VALUE})")
-  private final Integer fastSyncMinPeerCount = FAST_SYNC_MIN_PEER_COUNT;
+          "Minimum number of peers required before starting fast sync. (default pre-merge: "
+              + FAST_SYNC_MIN_PEER_COUNT
+              + " and post-merge: "
+              + FAST_SYNC_MIN_PEER_COUNT_POST_MERGE
+              + ")")
+  private final Integer fastSyncMinPeerCount = null;
 
   @Option(
       names = {"--network"},
@@ -568,9 +579,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   static class EngineRPCOptionGroup {
     @Option(
         names = {"--engine-rpc-enabled"},
-        description = "deprectaed parameter, do not use.",
-        hidden = true)
-    private final Boolean deprecatedIsEngineRpcEnabled = false;
+        description =
+            "enable the engine api, even in the absence of merge-specific configurations.")
+    private final Boolean overrideEngineRpcEnabled = false;
 
     @Option(
         names = {"--engine-rpc-port", "--engine-rpc-http-port"},
@@ -605,11 +616,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         defaultValue = "localhost,127.0.0.1")
     private final JsonRPCAllowlistHostsProperty engineHostsAllowlist =
         new JsonRPCAllowlistHostsProperty();
-
-    @Option(
-        names = {"--engine-rollup-extension-enabled"},
-        description = "Enables Rollup extension Engine APIs (default: ${DEFAULT-VALUE})")
-    private final Boolean isEngineRollupExtensionEnabled = false;
   }
 
   // JSON-RPC HTTP Options
@@ -758,6 +764,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   JsonRPCWebsocketOptionGroup jsonRPCWebsocketOptionGroup = new JsonRPCWebsocketOptionGroup();
 
   static class JsonRPCWebsocketOptionGroup {
+
     @Option(
         names = {"--rpc-ws-authentication-jwt-algorithm"},
         description =
@@ -1214,6 +1221,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             "Price bump percentage to replace an already existing transaction  (default: ${DEFAULT-VALUE})",
         arity = "1")
     private final Integer priceBump = TransactionPoolConfiguration.DEFAULT_PRICE_BUMP.getValue();
+
+    @Option(
+        names = {"--tx-pool-future-max-by-account"},
+        paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
+        converter = PercentageConverter.class,
+        description =
+            "Maximum per account of currently unexecutable future transactions that can occupy the txpool (default: ${DEFAULT-VALUE})",
+        arity = "1")
+    private final Integer maxFutureTransactionsByAccount =
+        TransactionPoolConfiguration.MAX_FUTURE_TRANSACTION_BY_ACCOUNT;
   }
 
   @SuppressWarnings({"FieldCanBeFinal", "FieldMayBeFinal"}) // PicoCLI requires non-final Strings.
@@ -1394,10 +1411,14 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     handleUnstableOptions();
     preparePlugins();
     parse(resultHandler, exceptionHandler, args);
+    detectJemalloc();
   }
 
   @Override
   public void run() {
+    if (network != null && network.isDeprecated()) {
+      logger.warn(NetworkDeprecationMessage.generate(network));
+    }
 
     try {
       configureLogging(true);
@@ -1492,6 +1513,18 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     commandLine.registerConverter(MetricCategory.class, metricCategoryConverter);
   }
 
+  private void detectJemalloc() {
+    // jemalloc is only supported on Linux at the moment
+    if (PlatformDetector.getOSType().equals("linux")) {
+      Optional.ofNullable(environment.get("BESU_USING_JEMALLOC"))
+          .ifPresentOrElse(
+              present -> logger.info("Using jemalloc"),
+              () ->
+                  logger.info(
+                      "jemalloc library not found, memory usage may be reduced by installing it"));
+    }
+  }
+
   private void handleStableOptions() {
     commandLine.addMixin("Ethstats", ethstatsOptions);
     commandLine.addMixin("Private key file", nodePrivateKeyFileOption);
@@ -1519,6 +1552,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .put("Merge", mergeOptions)
             .put("EVM Options", unstableEvmOptions)
             .put("IPC Options", unstableIpcOptions)
+            .put("Rollup Options", unstableRollupOptions)
             .build();
 
     UnstableOptionsSubCommand.createUnstableOptions(commandLine, unstableOptions);
@@ -1604,6 +1638,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         p2PDiscoveryOptionGroup.peerDiscoveryEnabled,
         ethNetworkConfig,
         p2PDiscoveryOptionGroup.maxPeers,
+        p2PDiscoveryOptionGroup.minPeers,
         p2PDiscoveryOptionGroup.p2pHost,
         p2PDiscoveryOptionGroup.p2pInterface,
         p2PDiscoveryOptionGroup.p2pPort,
@@ -1717,6 +1752,14 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       SignatureAlgorithmFactory.getInstance().disableNative();
       logger.info("Using the Java implementation of the signature algorithm");
     }
+
+    if (unstableNativeLibraryOptions.getNativeBlake2bf()
+        && Blake2bfMessageDigest.Blake2bfDigest.isNative()) {
+      logger.info("Using the native implementation of the blake2bf algorithm");
+    } else {
+      Blake2bfMessageDigest.Blake2bfDigest.disableNative();
+      logger.info("Using the Java implementation of the blake2bf algorithm");
+    }
   }
 
   private void validateOptions() {
@@ -1726,6 +1769,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     validateNatParams();
     validateNetStatsParams();
     validateDnsOptionsParams();
+    ensureValidPeerBoundParams();
     validateRpcOptionsParams();
     p2pTLSConfigOptions.checkP2PTLSOptionsDependencies(logger, commandLine);
     pkiBlockCreationOptions.checkPkiBlockCreationOptionsDependencies(logger, commandLine);
@@ -1795,6 +1839,21 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
           this.commandLine,
           "The `--Xdns-update-enabled` requires dns to be enabled. Either remove --Xdns-update-enabled"
               + " or specify dns is enabled (--Xdns-enabled)");
+    }
+  }
+
+  private void ensureValidPeerBoundParams() {
+    final int min = unstableNetworkingOptions.toDomainObject().getRlpx().getPeerLowerBound();
+    final int max = p2PDiscoveryOptionGroup.maxPeers;
+    if (min > max) {
+      logger.warn("`--Xp2p-peer-lower-bound` " + min + " must not exceed --max-peers " + max);
+      // modify the --X lower-bound value if it's not valid, we don't want unstable defaults
+      // breaking things
+      logger.warn("setting --Xp2p-peer-lower-bound=" + max);
+      unstableNetworkingOptions.toDomainObject().getRlpx().setPeerLowerBound(max);
+      p2PDiscoveryOptionGroup.minPeers = max;
+    } else {
+      p2PDiscoveryOptionGroup.minPeers = min;
     }
   }
 
@@ -1935,9 +1994,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     jsonRpcConfiguration =
         jsonRpcConfiguration(
             jsonRPCHttpOptionGroup.rpcHttpPort, jsonRPCHttpOptionGroup.rpcHttpApis, hostsAllowlist);
-    engineJsonRpcConfiguration =
-        createEngineJsonRpcConfiguration(
-            engineRPCOptionGroup.engineRpcPort, engineRPCOptionGroup.engineHostsAllowlist);
+    if (isEngineApiEnabled()) {
+      engineJsonRpcConfiguration =
+          createEngineJsonRpcConfiguration(
+              engineRPCOptionGroup.engineRpcPort, engineRPCOptionGroup.engineHostsAllowlist);
+    }
     p2pTLSConfiguration = p2pTLSConfigOptions.p2pTLSConfiguration(commandLine);
     graphQLConfiguration = graphQLConfiguration();
     webSocketConfiguration =
@@ -2023,10 +2084,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
           this.commandLine,
           "--privacy-public-key-file must be set if isQuorum is set in the genesis file.",
           e);
-    }
-    if (key.length() != 44) {
-      throw new IllegalArgumentException(
-          "Contents of enclave public key file needs to be 44 characters long to decode to a valid 32 byte public key.");
     }
     // throws exception if invalid base 64
     Base64.getDecoder().decode(key);
@@ -2129,19 +2186,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private JsonRpcConfiguration createEngineJsonRpcConfiguration(
       final Integer listenPort, final List<String> allowCallsFrom) {
-
     List<String> apiGroups = new ArrayList<>(List.of(RpcApis.ENGINE.name(), RpcApis.ETH.name()));
-    if (engineRPCOptionGroup.isEngineRollupExtensionEnabled) {
+    if (unstableRollupOptions.isEngineRollupExtensionEnabled()) {
       apiGroups.add(RpcApis.ROLLUP.name());
     }
-
     JsonRpcConfiguration engineConfig = jsonRpcConfiguration(listenPort, apiGroups, allowCallsFrom);
-    if (engineRPCOptionGroup.deprecatedIsEngineRpcEnabled) {
-      logger.warn(
-          "--engine-api-enabled parameter has been deprecated and will be removed in a future release.  "
-              + "Merge support is implicitly enabled by the presence of terminalTotalDifficulty in the genesis config.");
-    }
-    engineConfig.setEnabled(isMergeEnabled());
+    engineConfig.setEnabled(isEngineApiEnabled());
     if (!engineRPCOptionGroup.isEngineAuthDisabled) {
       engineConfig.setAuthenticationEnabled(true);
       engineConfig.setAuthenticationAlgorithm(JwtAlgorithm.HS256);
@@ -2755,10 +2805,19 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private SynchronizerConfiguration buildSyncConfig() {
+    Integer fastSyncMinPeers = fastSyncMinPeerCount;
+    if (fastSyncMinPeers == null) {
+      if (isMergedNetwork(network)) {
+        fastSyncMinPeers = FAST_SYNC_MIN_PEER_COUNT_POST_MERGE;
+      } else {
+        fastSyncMinPeers = FAST_SYNC_MIN_PEER_COUNT;
+      }
+    }
+
     return unstableSynchronizerOptions
         .toDomainObject()
         .syncMode(syncMode)
-        .fastSyncMinimumPeerCount(fastSyncMinPeerCount)
+        .fastSyncMinimumPeerCount(fastSyncMinPeers)
         .build();
   }
 
@@ -2768,6 +2827,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .txPoolMaxSize(txPoolOptionGroup.txPoolMaxSize)
         .pendingTxRetentionPeriod(txPoolOptionGroup.pendingTxRetentionPeriod)
         .priceBump(Percentage.fromInt(txPoolOptionGroup.priceBump))
+        .txPoolMaxFutureTransactionByAccount(txPoolOptionGroup.maxFutureTransactionsByAccount)
         .txFeeCap(txFeeCap)
         .build();
   }
@@ -2784,6 +2844,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       final boolean peerDiscoveryEnabled,
       final EthNetworkConfig ethNetworkConfig,
       final int maxPeers,
+      final int minPeers,
       final String p2pAdvertisedHost,
       final String p2pListenInterface,
       final int p2pListenPort,
@@ -2818,6 +2879,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .p2pListenInterface(p2pListenInterface)
             .p2pListenPort(p2pListenPort)
             .maxPeers(maxPeers)
+            .minPeers(minPeers)
             .limitRemoteWireConnectionsEnabled(
                 p2PDiscoveryOptionGroup.isLimitRemoteWireConnectionsEnabled)
             .fractionRemoteConnectionsAllowed(
@@ -3105,7 +3167,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         effectivePorts,
         jsonRPCWebsocketOptionGroup.rpcWsPort,
         jsonRPCWebsocketOptionGroup.isRpcWsEnabled);
-    addPortIfEnabled(effectivePorts, engineRPCOptionGroup.engineRpcPort, isMergeEnabled());
+    addPortIfEnabled(effectivePorts, engineRPCOptionGroup.engineRpcPort, isEngineApiEnabled());
     addPortIfEnabled(
         effectivePorts, metricsOptionGroup.metricsPort, metricsOptionGroup.isMetricsEnabled);
     addPortIfEnabled(
@@ -3225,11 +3287,15 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .isPresent());
 
     MergeConfigOptions.setRollupExtensionEnabled(
-        engineRPCOptionGroup.isEngineRollupExtensionEnabled);
+        unstableRollupOptions.isEngineRollupExtensionEnabled());
   }
 
   private boolean isMergeEnabled() {
     return MergeConfigOptions.isMergeEnabled();
+  }
+
+  private boolean isEngineApiEnabled() {
+    return engineRPCOptionGroup.overrideEngineRpcEnabled || isMergeEnabled();
   }
 
   public static List<String> getJDKEnabledCypherSuites() {

@@ -21,7 +21,6 @@ import org.hyperledger.besu.config.GenesisConfigFile;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.consensus.merge.FinalizedBlockHashSupplier;
 import org.hyperledger.besu.consensus.merge.MergeContext;
-import org.hyperledger.besu.consensus.merge.PandaPrinter;
 import org.hyperledger.besu.consensus.qbft.pki.PkiBlockCreationConfiguration;
 import org.hyperledger.besu.crypto.NodeKey;
 import org.hyperledger.besu.datatypes.Hash;
@@ -379,7 +378,6 @@ public abstract class BesuControllerBuilder implements MiningParameterOverrides 
     final EthContext ethContext = new EthContext(ethPeers, ethMessages, snapMessages, scheduler);
     final boolean fastSyncEnabled = !SyncMode.isFullSync(syncConfig.getSyncMode());
     final SyncState syncState = new SyncState(blockchain, ethPeers, fastSyncEnabled, checkpoint);
-    syncState.subscribeTTDReached(new PandaPrinter());
 
     final TransactionPool transactionPool =
         TransactionPoolFactory.createTransactionPool(
@@ -413,19 +411,14 @@ public abstract class BesuControllerBuilder implements MiningParameterOverrides 
     final PivotBlockSelector pivotBlockSelector = createPivotSelector(protocolContext);
 
     final Synchronizer synchronizer =
-        new DefaultSynchronizer(
-            syncConfig,
+        createSynchronizer(
             protocolSchedule,
-            protocolContext,
             worldStateStorage,
-            ethProtocolManager.getBlockBroadcaster(),
+            protocolContext,
             maybePruner,
             ethContext,
             syncState,
-            dataDirectory,
-            clock,
-            metricsSystem,
-            getFullSyncTerminationCondition(protocolContext.getBlockchain()),
+            ethProtocolManager,
             pivotBlockSelector);
 
     final MiningCoordinator miningCoordinator =
@@ -469,6 +462,35 @@ public abstract class BesuControllerBuilder implements MiningParameterOverrides 
         nodeKey,
         closeables,
         additionalPluginServices);
+  }
+
+  protected Synchronizer createSynchronizer(
+      final ProtocolSchedule protocolSchedule,
+      final WorldStateStorage worldStateStorage,
+      final ProtocolContext protocolContext,
+      final Optional<Pruner> maybePruner,
+      final EthContext ethContext,
+      final SyncState syncState,
+      final EthProtocolManager ethProtocolManager,
+      final PivotBlockSelector pivotBlockSelector) {
+
+    DefaultSynchronizer toUse =
+        new DefaultSynchronizer(
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            worldStateStorage,
+            ethProtocolManager.getBlockBroadcaster(),
+            maybePruner,
+            ethContext,
+            syncState,
+            dataDirectory,
+            clock,
+            metricsSystem,
+            getFullSyncTerminationCondition(protocolContext.getBlockchain()),
+            pivotBlockSelector);
+
+    return toUse;
   }
 
   private PivotBlockSelector createPivotSelector(final ProtocolContext protocolContext) {

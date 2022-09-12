@@ -254,7 +254,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
     } else if (!ethPeer.statusHasBeenReceived()) {
       // Peers are required to send status messages before any other message type
       LOG.debug(
-          "{} requires a Status ({}) message to be sent first.  Instead, received message {}.  Disconnecting from {}.",
+          "{} requires a Status ({}) message to be sent first.  Instead, received message {} (BREACH_OF_PROTOCOL).  Disconnecting from {}.",
           this.getClass().getSimpleName(),
           EthPV62.STATUS,
           code,
@@ -265,6 +265,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
 
     if (this.mergePeerFilter.isPresent()) {
       if (this.mergePeerFilter.get().disconnectIfGossipingBlocks(message, ethPeer)) {
+        LOG.debug("Post-merge disconnect: peer still gossiping blocks {}", ethPeer);
         handleDisconnect(ethPeer.getConnection(), DisconnectReason.SUBPROTOCOL_TRIGGERED, false);
         return;
       }
@@ -273,7 +274,9 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
     final EthMessage ethMessage = new EthMessage(ethPeer, messageData);
 
     if (!ethPeer.validateReceivedMessage(ethMessage, getSupportedProtocol())) {
-      LOG.debug("Unsolicited message received, disconnecting from EthPeer: {}", ethPeer);
+      LOG.debug(
+          "Unsolicited message received (BREACH_OF_PROTOCOL), disconnecting from EthPeer: {}",
+          ethPeer);
       ethPeer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL);
       return;
     }
@@ -296,7 +299,10 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
       }
     } catch (final RLPException e) {
       LOG.debug(
-          "Received malformed message {} , disconnecting: {}", messageData.getData(), ethPeer, e);
+          "Received malformed message {} (BREACH_OF_PROTOCOL), disconnecting: {}",
+          messageData.getData(),
+          ethPeer,
+          e);
 
       ethPeer.disconnect(DisconnectMessage.DisconnectReason.BREACH_OF_PROTOCOL);
     }
@@ -376,11 +382,10 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
             networkId,
             status.genesisHash());
         peer.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED);
-      } else if (mergePeerFilter.isPresent()) {
-        final boolean disconnected = mergePeerFilter.get().disconnectIfPoW(status, peer);
-        if (disconnected) {
-          handleDisconnect(peer.getConnection(), DisconnectReason.SUBPROTOCOL_TRIGGERED, false);
-        }
+      } else if (mergePeerFilter.isPresent()
+          && mergePeerFilter.get().disconnectIfPoW(status, peer)) {
+        LOG.debug("Post-merge disconnect: peer still PoW {}", peer);
+        handleDisconnect(peer.getConnection(), DisconnectReason.SUBPROTOCOL_TRIGGERED, false);
       } else {
         LOG.debug("Received status message from {}: {}", peer, status);
         peer.registerStatusReceived(

@@ -44,6 +44,7 @@ random-peer-priority-enabled=false
 host-whitelist=["all"]
 host-allowlist=["all"]
 engine-host-allowlist=["all"]
+engine-rpc-enabled=true
 engine-jwt-disabled=true
 engine-jwt-secret="/tmp/jwt.hex"
 required-blocks=["8675309=123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]
@@ -166,6 +167,7 @@ tx-pool-retention-hours=999
 tx-pool-price-bump=13
 tx-pool-max-size=1234
 tx-pool-hashes-max-size=10000
+tx-pool-future-max-by-account=50
 Xincoming-tx-messages-keep-alive-seconds=60
 rpc-tx-feecap=2000000000000000000
 strict-tx-replay-protection-enabled=true
@@ -210,4 +212,4 @@ Xp2p-tls-crl-file="none.file"
 #contracts
 Xevm-jumpdest-cache-weight-kb=32000
 
-engine-rollup-extension-enabled=false
+Xengine-rollup-extension-enabled=false

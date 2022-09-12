@@ -36,6 +36,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -107,7 +108,10 @@ public class EthPeers {
             clock,
             permissioningProviders);
     final EthPeer ethPeer = connections.putIfAbsent(peerConnection, peer);
-    LOG.debug("Adding new EthPeer {}", ethPeer);
+    LOG.debug(
+        "Adding new EthPeer {} {}",
+        peer.getShortNodeId(),
+        ethPeer == null ? "for the first time" : "");
   }
 
   public void registerDisconnect(final PeerConnection connection) {
@@ -161,9 +165,16 @@ public class EthPeers {
     dispatchMessage(peer, ethMessage, protocolName);
   }
 
-  private void reattemptPendingPeerRequests() {
+  @VisibleForTesting
+  void reattemptPendingPeerRequests() {
     synchronized (this) {
-      pendingRequests.removeIf(PendingPeerRequest::attemptExecution);
+      final Iterator<PendingPeerRequest> iterator = pendingRequests.iterator();
+      while (iterator.hasNext()) {
+        final PendingPeerRequest request = iterator.next();
+        if (request.attemptExecution()) {
+          pendingRequests.remove(request);
+        }
+      }
     }
   }
 
@@ -191,8 +202,20 @@ public class EthPeers {
     return connections.values().stream();
   }
 
+  private void removeDisconnectedPeers() {
+    final Collection<EthPeer> peerStream = connections.values();
+    for (EthPeer p : peerStream) {
+      if (p.isDisconnected()) {
+        connections.remove(p.getConnection());
+      }
+    }
+  }
+
   public Stream<EthPeer> streamAvailablePeers() {
-    return streamAllPeers().filter(EthPeer::readyForRequests);
+    removeDisconnectedPeers();
+    return streamAllPeers()
+        .filter(EthPeer::readyForRequests)
+        .filter(peer -> !peer.isDisconnected());
   }
 
   public Stream<EthPeer> streamBestPeers() {

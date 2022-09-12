@@ -56,7 +56,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -67,7 +66,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -149,8 +147,6 @@ public class DefaultP2PNetwork implements P2PNetwork {
   private final Duration shutdownTimeout = Duration.ofMinutes(1);
   private DNSDaemon dnsDaemon;
 
-  @VisibleForTesting final AtomicReference<List<DiscoveryPeer>> dnsPeers = new AtomicReference<>();
-
   /**
    * Creates a peer networking service for production purposes.
    *
@@ -188,8 +184,10 @@ public class DefaultP2PNetwork implements P2PNetwork {
     this.nodeId = nodeKey.getPublicKey().getEncodedBytes();
     this.peerPermissions = peerPermissions;
 
-    final int maxPeers = config.getRlpx().getMaxPeers();
-    peerDiscoveryAgent.addPeerRequirement(() -> rlpxAgent.getConnectionCount() >= maxPeers);
+    // set the requirement here that the number of peers be greater than the lower bound
+    final int peerLowerBound = config.getRlpx().getPeerLowerBound();
+    LOG.debug("setting peerLowerBound {}", peerLowerBound);
+    peerDiscoveryAgent.addPeerRequirement(() -> rlpxAgent.getConnectionCount() >= peerLowerBound);
     subscribeDisconnect(reputationManager);
   }
 
@@ -215,6 +213,8 @@ public class DefaultP2PNetwork implements P2PNetwork {
     Optional.ofNullable(config.getDiscovery().getDNSDiscoveryURL())
         .ifPresent(
             disco -> {
+              // These lists are updated every 12h
+              // We retrieve the list every 10 minutes (600000 msec)
               LOG.info("Starting DNS discovery with URL {}", disco);
               config
                   .getDnsDiscoveryServerOverride()
@@ -228,7 +228,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
                       disco,
                       createDaemonListener(),
                       0L,
-                      60000L,
+                      600000L,
                       config.getDnsDiscoveryServerOverride().orElse(null));
               dnsDaemon.start();
             });
@@ -347,11 +347,9 @@ public class DefaultP2PNetwork implements P2PNetwork {
                 .build();
         final DiscoveryPeer peer = DiscoveryPeer.fromEnode(enodeURL);
         peers.add(peer);
-        rlpxAgent.connect(peer);
       }
-      // only replace dnsPeers if the lookup was successful:
       if (!peers.isEmpty()) {
-        dnsPeers.set(peers);
+        peers.stream().forEach(peerDiscoveryAgent::bond);
       }
     };
   }
@@ -383,11 +381,6 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   @Override
   public Stream<DiscoveryPeer> streamDiscoveredPeers() {
-    final List<DiscoveryPeer> peers = dnsPeers.get();
-    if (peers != null) {
-      Collections.shuffle(peers);
-      return Stream.concat(peerDiscoveryAgent.streamDiscoveredPeers(), peers.stream());
-    }
     return peerDiscoveryAgent.streamDiscoveredPeers();
   }
 
