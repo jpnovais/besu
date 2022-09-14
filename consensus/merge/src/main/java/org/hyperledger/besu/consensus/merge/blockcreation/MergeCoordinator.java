@@ -198,7 +198,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             (blockCreationResult, throwable) -> {
               final var bestBlock = blockCreationResult.getBlock();
               if (throwable != null) {
-                LOG.warn("something went wrong creating block", throwable);
+                LOG.debug("something went wrong creating block", throwable);
               } else {
                 final var resultBest = validateBlock(bestBlock);
                 if (resultBest.blockProcessingOutputs.isPresent()) {
