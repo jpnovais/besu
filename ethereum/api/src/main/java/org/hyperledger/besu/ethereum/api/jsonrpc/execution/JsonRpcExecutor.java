@@ -46,10 +46,16 @@ public class JsonRpcExecutor {
   private static final Logger LOG = LoggerFactory.getLogger(JsonRpcExecutor.class);
 
   private final JsonRpcProcessor rpcProcessor;
-  private final Map<String, JsonRpcMethod> rpcMethods;
+  private final Supplier<Map<String, JsonRpcMethod>> rpcMethods;
 
   public JsonRpcExecutor(
       final JsonRpcProcessor rpcProcessor, final Map<String, JsonRpcMethod> rpcMethods) {
+    this.rpcProcessor = rpcProcessor;
+    this.rpcMethods = () -> rpcMethods;
+  }
+
+  public JsonRpcExecutor(
+      final JsonRpcProcessor rpcProcessor, final Supplier<Map<String, JsonRpcMethod>> rpcMethods) {
     this.rpcProcessor = rpcProcessor;
     this.rpcMethods = rpcMethods;
   }
@@ -86,7 +92,7 @@ public class JsonRpcExecutor {
         return new JsonRpcErrorResponse(id, unavailableMethod.get());
       }
 
-      final JsonRpcMethod method = rpcMethods.get(requestBody.getMethod());
+      final JsonRpcMethod method = rpcMethods.get().get(requestBody.getMethod());
 
       return rpcProcessor.process(
           id, method, span, new JsonRpcRequestContext(requestBody, optionalUser, alive));
@@ -104,13 +110,13 @@ public class JsonRpcExecutor {
     final String name = request.getMethod();
     LOG.debug("JSON-RPC request -> {} {}", name, request.getParams());
 
-    final JsonRpcMethod method = rpcMethods.get(name);
+    final JsonRpcMethod method = rpcMethods.get().get(name);
 
     if (method == null) {
       if (!RpcMethod.rpcMethodExists(name)) {
         return Optional.of(JsonRpcError.METHOD_NOT_FOUND);
       }
-      if (!rpcMethods.containsKey(name)) {
+      if (!rpcMethods.get().containsKey(name)) {
         return Optional.of(JsonRpcError.METHOD_NOT_ENABLED);
       }
     }

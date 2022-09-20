@@ -51,6 +51,7 @@ import java.util.Optional;
 import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -121,7 +122,7 @@ public class JsonRpcHttpService {
 
   private final Vertx vertx;
   private final JsonRpcConfiguration config;
-  private final Map<String, JsonRpcMethod> rpcMethods;
+  private final Supplier<Map<String, JsonRpcMethod>> rpcMethodsSupplier;
   private final NatService natService;
   private final Path dataDir;
   private final LabelledMetric<OperationTimer> requestTimer;
@@ -162,7 +163,7 @@ public class JsonRpcHttpService {
         config,
         metricsSystem,
         natService,
-        methods,
+        () -> methods,
         DefaultAuthenticationService.create(vertx, config),
         livenessService,
         readinessService);
@@ -174,7 +175,7 @@ public class JsonRpcHttpService {
       final JsonRpcConfiguration config,
       final MetricsSystem metricsSystem,
       final NatService natService,
-      final Map<String, JsonRpcMethod> methods,
+      final Supplier<Map<String, JsonRpcMethod>> methodsSupplier,
       final Optional<AuthenticationService> authenticationService,
       final HealthService livenessService,
       final HealthService readinessService) {
@@ -196,7 +197,7 @@ public class JsonRpcHttpService {
     this.config = config;
     this.vertx = vertx;
     this.natService = natService;
-    this.rpcMethods = methods;
+    this.rpcMethodsSupplier = methodsSupplier;
     this.authenticationService = authenticationService;
     this.livenessService = livenessService;
     this.readinessService = readinessService;
@@ -329,7 +330,8 @@ public class JsonRpcHttpService {
     mainRoute
         .handler(HandlerFactory.jsonRpcParser())
         .handler(
-            HandlerFactory.timeout(new TimeoutOptions(config.getHttpTimeoutSec()), rpcMethods));
+            HandlerFactory.timeout(
+                new TimeoutOptions(config.getHttpTimeoutSec()), rpcMethodsSupplier.get()));
     if (authenticationService.isPresent()) {
       mainRoute.blockingHandler(
           HandlerFactory.jsonRpcExecutor(
@@ -339,7 +341,7 @@ public class JsonRpcHttpService {
                           new TracedJsonRpcProcessor(new BaseJsonRpcProcessor()), requestTimer),
                       authenticationService.get(),
                       config.getNoAuthRpcApis()),
-                  rpcMethods),
+                  rpcMethodsSupplier),
               tracer),
           false);
     } else {
@@ -348,7 +350,7 @@ public class JsonRpcHttpService {
               new JsonRpcExecutor(
                   new TimedJsonRpcProcessor(
                       new TracedJsonRpcProcessor(new BaseJsonRpcProcessor()), requestTimer),
-                  rpcMethods),
+                  rpcMethodsSupplier),
               tracer),
           false);
     }
