@@ -18,7 +18,9 @@ import static org.hyperledger.besu.config.JsonUtil.normalizeKeys;
 
 import org.hyperledger.besu.config.JsonGenesisConfigOptions;
 import org.hyperledger.besu.config.JsonUtil;
+import org.hyperledger.besu.consensus.merge.MergeProtocolSchedule;
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
+import org.hyperledger.besu.consensus.merge.TransitionProtocolSchedule;
 import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -33,6 +35,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningParameters;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -87,6 +90,7 @@ public class RetestethContext {
           new PoWSolution(nonce, Hash.ZERO, UInt256.ZERO, Hash.ZERO);
 
   private final ReentrantLock contextLock = new ReentrantLock();
+  private EthPeers ethPeers;
   private Address coinbase;
   private Bytes extraData;
   private MutableBlockchain blockchain;
@@ -158,8 +162,21 @@ public class RetestethContext {
     final JsonGenesisConfigOptions jsonGenesisConfigOptions =
         JsonGenesisConfigOptions.fromJsonObject(
             JsonUtil.getObjectNode(genesisConfig, "config").get());
+    PostMergeContext.get().setTerminalTotalDifficulty(Difficulty.ZERO);
+    PostMergeContext.get().setIsPostMerge(Difficulty.ZERO);
+
     protocolSchedule =
-        MainnetProtocolSchedule.fromConfig(jsonGenesisConfigOptions, EvmConfiguration.DEFAULT);
+        new TransitionProtocolSchedule(
+            MainnetProtocolSchedule.fromConfig(jsonGenesisConfigOptions, EvmConfiguration.DEFAULT),
+            MergeProtocolSchedule.create(jsonGenesisConfigOptions, true));
+
+    // protocolSchedule =
+    //     MainnetProtocolSchedule.fromConfig(jsonGenesisConfigOptions, EvmConfiguration.DEFAULT);
+    LOG.info(
+        "GenesisConfig: terminaltotaldifficulty={}, terminalBlockNumber={} terminalBlockHash={}",
+        jsonGenesisConfigOptions.getTerminalTotalDifficulty(),
+        jsonGenesisConfigOptions.getTerminalBlockNumber(),
+        jsonGenesisConfigOptions.getTerminalBlockHash());
     if ("NoReward".equalsIgnoreCase(sealEngine)) {
       protocolSchedule = new NoRewardProtocolScheduleWrapper(protocolSchedule);
     }
@@ -175,6 +192,8 @@ public class RetestethContext {
             new WorldStatePreimageKeyValueStorage(new InMemoryKeyValueStorage()));
     final MutableWorldState worldState = worldStateArchive.getMutable();
     genesisState.writeStateTo(worldState);
+
+    PostMergeContext.get().setTerminalPoWBlock(Optional.of(genesisState.getBlock().getHeader()));
 
     blockchain = createInMemoryBlockchain(genesisState.getBlock());
     protocolContext = new ProtocolContext(blockchain, worldStateArchive, PostMergeContext.get());
@@ -214,8 +233,7 @@ public class RetestethContext {
             blockchainQueries.getWorldStateArchive());
 
     // mining support
-
-    final EthPeers ethPeers =
+    ethPeers =
         new EthPeers(
             "reteseth",
             retestethClock,
@@ -223,6 +241,7 @@ public class RetestethContext {
             0,
             EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE);
     final SyncState syncState = new SyncState(blockchain, ethPeers);
+    PostMergeContext.get().setSyncState(syncState);
 
     ethScheduler = new EthScheduler(1, 1, 1, 1, metricsSystem);
     final EthContext ethContext = new EthContext(ethPeers, new EthMessages(), ethScheduler);
@@ -251,11 +270,10 @@ public class RetestethContext {
         new BackwardSyncContext(
             protocolContext,
             protocolSchedule,
-            new NoOpMetricsSystem(),
+            metricsSystem,
             ethContext,
             syncState,
-            BackwardChain.from(
-                new InMemoryKeyValueStorageProvider(), new MainnetBlockHeaderFunctions()));
+            BackwardChain.from(new InMemoryKeyValueStorageProvider(), blockHeaderFunctions));
 
     rollupCoordinator =
         new RollupMergeCoordinator(
@@ -280,6 +298,10 @@ public class RetestethContext {
         new KeyValueStoragePrefixedKeyBlockchainStorage(keyValueStorage, blockHeaderFunctions),
         new NoOpMetricsSystem(),
         100);
+  }
+
+  public EthPeers getEthPeers() {
+    return ethPeers;
   }
 
   public ProtocolSchedule getProtocolSchedule() {
