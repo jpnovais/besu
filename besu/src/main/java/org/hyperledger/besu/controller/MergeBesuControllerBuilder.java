@@ -68,6 +68,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
     return createTransitionMiningCoordinator(
         protocolSchedule,
         protocolContext,
+        ethProtocolManager.ethContext(),
         transactionPool,
         miningParameters,
         syncState,
@@ -133,6 +134,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
   protected MiningCoordinator createTransitionMiningCoordinator(
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
+      final EthContext ethContext,
       final TransactionPool transactionPool,
       final MiningParameters miningParameters,
       final SyncState syncState,
@@ -144,6 +146,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
       return new RollupMergeCoordinator(
           protocolContext,
           protocolSchedule,
+          ethContext,
           transactionPool.getPendingTransactions(),
           miningParameters,
           backwardSyncContext);
@@ -152,6 +155,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
     return new MergeCoordinator(
         protocolContext,
         protocolSchedule,
+        ethContext,
         transactionPool.getPendingTransactions(),
         miningParameters,
         backwardSyncContext);
