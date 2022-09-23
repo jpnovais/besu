@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.retesteth;
 
 import static org.hyperledger.besu.config.JsonUtil.normalizeKeys;
 
+import java.math.BigInteger;
 import org.hyperledger.besu.config.JsonGenesisConfigOptions;
 import org.hyperledger.besu.config.JsonUtil;
 import org.hyperledger.besu.consensus.merge.MergeProtocolSchedule;
@@ -67,6 +68,7 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.WorldStatePreimageKeyValue
 import org.hyperledger.besu.ethereum.worldstate.DefaultWorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.evm.log.Log;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
@@ -250,7 +252,11 @@ public class RetestethContext {
         ImmutableTransactionPoolConfiguration.builder().build();
 
     final var miningParameters =
-        new MiningParameters.Builder().minTransactionGasPrice(Wei.ZERO).build();
+        new MiningParameters.Builder()
+            .minTransactionGasPrice(Wei.ZERO)
+            .targetGasLimit(Long.decode(genesisConfig.get("gaslimit").asText()))
+            .build();
+
     transactionPool =
         TransactionPoolFactory.createTransactionPool(
             protocolSchedule,
