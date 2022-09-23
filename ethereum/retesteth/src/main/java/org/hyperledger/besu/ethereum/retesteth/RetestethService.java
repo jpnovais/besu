@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetTransact
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthSendRawTransaction;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Web3ClientVersion;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdated;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetPayload;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayload;
@@ -69,6 +70,14 @@ public class RetestethService {
   private final Vertx syncVertx;
   private JsonRpcHttpService jsonRpcHttpService;
   private Map<String, JsonRpcMethod> rpcMethods;
+
+  private final EngineCallListener noopEngineListener =
+      new EngineCallListener() {
+        @Override
+        public void executionEngineCalled() {
+          // noop
+        }
+      };
 
   public RetestethService(
       final String clientVersion,
@@ -135,18 +144,24 @@ public class RetestethService {
                   syncVertx,
                   retestethContext.getProtocolContext(),
                   retestethContext.getRollupCoordinator(),
-                  retestethContext.getEthPeers()),
-              new EngineGetPayload(syncVertx, retestethContext.getProtocolContext(), blockResult),
+                  retestethContext.getEthPeers(),
+                  noopEngineListener),
+              new EngineGetPayload(
+                  syncVertx,
+                  retestethContext.getProtocolContext(),
+                  blockResult,
+                  noopEngineListener),
               new EngineForkchoiceUpdated(
                   syncVertx,
                   retestethContext.getProtocolContext(),
-                  retestethContext.getRollupCoordinator()),
+                  retestethContext.getRollupCoordinator(),
+                  noopEngineListener),
               new RollupCreatePayload(
                   syncVertx,
                   retestethContext.getProtocolContext(),
                   retestethContext.getRollupCoordinator(),
-                  new BlockResultFactory()
-                  )));
+                  new BlockResultFactory(),
+                  noopEngineListener)));
     }
 
     return jsonRpcMethods;
