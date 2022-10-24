@@ -20,6 +20,7 @@ import org.hyperledger.besu.consensus.merge.MergeProtocolSchedule;
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
 import org.hyperledger.besu.consensus.merge.TransitionBestPeerComparator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator.ProposalBuilderExecutor;
 import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -146,8 +147,14 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
 
     this.syncState.set(syncState);
 
-    final ExecutorService blockBuilderExecutor =
+    final ExecutorService blockBuilderExecutorService =
         MonitoredExecutors.newCachedThreadPool("PoS-Block-Builder", 1, metricsSystem);
+
+    final ProposalBuilderExecutor blockBuilderExecutor =
+        (task) -> {
+          LOG.debug("Block builder executor status {}", blockBuilderExecutorService);
+          return CompletableFuture.runAsync(task, blockBuilderExecutorService);
+        };
 
     if (MergeConfigOptions.isRollupExtensionEnabled()) {
       return new RollupMergeCoordinator(
@@ -162,10 +169,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
     return new MergeCoordinator(
         protocolContext,
         protocolSchedule,
-        task -> {
-          LOG.debug("Block builder executor status {}", blockBuilderExecutor);
-          return CompletableFuture.runAsync(task, blockBuilderExecutor);
-        },
+        blockBuilderExecutor,
         transactionPool.getPendingTransactions(),
         miningParameters,
         backwardSyncContext);

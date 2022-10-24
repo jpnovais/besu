@@ -85,7 +85,7 @@ public class RollupCreatePayloadTest {
   private static final long mockBlockTimestamp = System.currentTimeMillis();
   private static final Address feeRecipient = Address.fromHexString("0x00112233aabbccddeeff");
   private static final PayloadIdentifier mockPayloadId =
-      PayloadIdentifier.forPayloadParams(Hash.ZERO, 1337L);
+      PayloadIdentifier.forPayloadParams(Hash.ZERO, 1337L, mockPrevRandao, feeRecipient);
 
   private static final KeyPair keyPair =
       keyPair("0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63");
