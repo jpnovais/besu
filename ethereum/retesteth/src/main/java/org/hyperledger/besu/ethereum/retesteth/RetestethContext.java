@@ -21,6 +21,7 @@ import org.hyperledger.besu.config.JsonUtil;
 import org.hyperledger.besu.consensus.merge.MergeProtocolSchedule;
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
 import org.hyperledger.besu.consensus.merge.TransitionProtocolSchedule;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator.ProposalBuilderExecutor;
 import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.manager.MonitoredExecutors;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -73,6 +75,8 @@ import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
@@ -107,6 +111,13 @@ public class RetestethContext {
   private PoWSolver poWSolver;
 
   private RollupMergeCoordinator rollupCoordinator;
+  final MetricsSystem metricsSystem = new NoOpMetricsSystem();
+
+  final ExecutorService blockBuilderExecutorService =
+      MonitoredExecutors.newCachedThreadPool("PoS-Block-Builder", 1, metricsSystem);
+
+  final ProposalBuilderExecutor blockBuilderExecutor =
+      (task) -> CompletableFuture.runAsync(task, blockBuilderExecutorService);
 
   private final Consumer<Void> beforeResetCallback;
   private final Consumer<Void> afterResetCallback;
@@ -157,7 +168,6 @@ public class RetestethContext {
 
     retestethClock = new RetestethClock();
     clockTime.ifPresent(retestethClock::resetTime);
-    final MetricsSystem metricsSystem = new NoOpMetricsSystem();
 
     final JsonGenesisConfigOptions jsonGenesisConfigOptions =
         JsonGenesisConfigOptions.fromJsonObject(
@@ -283,7 +293,7 @@ public class RetestethContext {
         new RollupMergeCoordinator(
             protocolContext,
             protocolSchedule,
-            ethContext,
+            blockBuilderExecutor,
             transactionPool.getPendingTransactions(),
             miningParameters,
             backwardSyncContext);

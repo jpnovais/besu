@@ -149,6 +149,7 @@ public class RetestethService {
               new EngineGetPayload(
                   syncVertx,
                   retestethContext.getProtocolContext(),
+                  retestethContext.getRollupCoordinator(),
                   blockResult,
                   noopEngineListener),
               new EngineForkchoiceUpdated(
