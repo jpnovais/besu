@@ -262,7 +262,7 @@ public class RetestethContext {
             ethContext,
             retestethClock,
             metricsSystem,
-            syncState::isInitialSyncPhaseDone,
+            syncState,
             miningParameters,
             transactionPoolConfiguration);
 

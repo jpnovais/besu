@@ -20,6 +20,7 @@ import org.hyperledger.besu.consensus.merge.MergeProtocolSchedule;
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
 import org.hyperledger.besu.consensus.merge.TransitionBestPeerComparator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator.ProposalBuilderExecutor;
 import org.hyperledger.besu.consensus.rollup.blockcreation.RollupMergeCoordinator;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -35,6 +36,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.MergePeerFilter;
+import org.hyperledger.besu.ethereum.eth.manager.MonitoredExecutors;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.RequiredBlocksPeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
@@ -44,10 +46,13 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
@@ -68,7 +73,6 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
     return createTransitionMiningCoordinator(
         protocolSchedule,
         protocolContext,
-        ethProtocolManager.ethContext(),
         transactionPool,
         miningParameters,
         syncState,
@@ -79,7 +83,8 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
             ethProtocolManager.ethContext(),
             syncState,
             BackwardChain.from(
-                storageProvider, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule))));
+                storageProvider, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule))),
+        metricsSystem);
   }
 
   @Override
@@ -113,7 +118,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
       filterToUse = mergePeerFilter;
     }
     mergeContext.observeNewIsPostMergeState(filterToUse.get());
-    mergeContext.addNewForkchoiceMessageListener(filterToUse.get());
+    mergeContext.addNewUnverifiedForkchoiceListener(filterToUse.get());
 
     EthProtocolManager ethProtocolManager =
         super.createEthProtocolManager(
@@ -134,19 +139,28 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
   protected MiningCoordinator createTransitionMiningCoordinator(
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
-      final EthContext ethContext,
       final TransactionPool transactionPool,
       final MiningParameters miningParameters,
       final SyncState syncState,
-      final BackwardSyncContext backwardSyncContext) {
+      final BackwardSyncContext backwardSyncContext,
+      final MetricsSystem metricsSystem) {
 
     this.syncState.set(syncState);
+
+    final ExecutorService blockBuilderExecutorService =
+        MonitoredExecutors.newCachedThreadPool("PoS-Block-Builder", 1, metricsSystem);
+
+    final ProposalBuilderExecutor blockBuilderExecutor =
+        (task) -> {
+          LOG.debug("Block builder executor status {}", blockBuilderExecutorService);
+          return CompletableFuture.runAsync(task, blockBuilderExecutorService);
+        };
 
     if (MergeConfigOptions.isRollupExtensionEnabled()) {
       return new RollupMergeCoordinator(
           protocolContext,
           protocolSchedule,
-          ethContext,
+          blockBuilderExecutor,
           transactionPool.getPendingTransactions(),
           miningParameters,
           backwardSyncContext);
@@ -155,7 +169,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
     return new MergeCoordinator(
         protocolContext,
         protocolSchedule,
-        ethContext,
+        blockBuilderExecutor,
         transactionPool.getPendingTransactions(),
         miningParameters,
         backwardSyncContext);

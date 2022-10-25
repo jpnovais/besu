@@ -27,7 +27,6 @@ import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationRes
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningParameters;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.AbstractPendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -46,14 +45,14 @@ public class RollupMergeCoordinator extends MergeCoordinator implements MergeMin
   public RollupMergeCoordinator(
       final ProtocolContext protocolContext,
       final ProtocolSchedule protocolSchedule,
-      final EthContext ethContext,
+      final ProposalBuilderExecutor blockBuilderExecutor,
       final AbstractPendingTransactionsSorter pendingTransactions,
       final MiningParameters miningParams,
       final BackwardSyncContext backwardSyncContext) {
     super(
         protocolContext,
         protocolSchedule,
-        ethContext,
+        blockBuilderExecutor,
         pendingTransactions,
         miningParams,
         backwardSyncContext);
@@ -94,7 +93,8 @@ public class RollupMergeCoordinator extends MergeCoordinator implements MergeMin
       final List<Transaction> transactions,
       final Bytes32 prevRandao) {
     final PayloadIdentifier payloadIdentifier =
-        PayloadIdentifier.forPayloadParams(parentHeader.getBlockHash(), timestamp);
+        PayloadIdentifier.forPayloadParams(
+            parentHeader.getBlockHash(), timestamp, prevRandao, feeRecipient);
     final MergeBlockCreator mergeBlockCreator =
         this.mergeBlockCreator.forParams(parentHeader, Optional.ofNullable(feeRecipient));
 
